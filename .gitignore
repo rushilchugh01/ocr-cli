@@ -1,0 +1,28 @@
+# Python
+.venv/
+*.egg-info/
+*.venv*/
+*.pyc
+*.pyo
+__pycache__/
+
+# Build artifacts
+build/
+dist/
+
+# PyInstaller
+*.spec.bak
+
+# Test inputs and outputs
+*.vis.png
+
+# Web app runtime data
+.webapp_data/
+
+# Windows venv (local build environment)
+NOSProjectsothersocrrapidocr.venv-win/
+
+# OS
+.DS_Store
+Thumbs.db
+

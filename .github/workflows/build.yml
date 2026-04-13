@@ -1,0 +1,45 @@
+name: Build Windows CLI
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Create venv
+        run: python -m venv NOSProjectsothersocrrapidocr.venv-win
+
+      - name: Install PyInstaller into venv
+        run: NOSProjectsothersocrrapidocr.venv-win\Scripts\pip.exe install pyinstaller
+
+      - name: Install project and dependencies
+        run: NOSProjectsothersocrrapidocr.venv-win\Scripts\pip.exe install -e .
+
+      - name: Preload OCR models
+        run: NOSProjectsothersocrrapidocr.venv-win\Scripts\python.exe scripts\preload_models.py
+
+      - name: Build with PyInstaller
+        run: NOSProjectsothersocrrapidocr.venv-win\Scripts\pyinstaller.exe --noconfirm rapidocr_cli.spec
+
+      - name: Zip release artifact
+        run: Compress-Archive -Path dist\rapidocr-cli -DestinationPath rapidocr-cli-windows-x64.zip
+        shell: pwsh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rapidocr-cli-windows-x64
+          path: rapidocr-cli-windows-x64.zip
+          retention-days: 30

@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rapidocr-cli"
+version = "0.1.0"
+description = "Standalone OCR CLI built on RapidOCR."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "rapidocr>=3.8.1",
+  "onnxruntime>=1.24.4",
+]
+
+[project.scripts]
+rapidocr-cli = "rapidocr_cli.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
