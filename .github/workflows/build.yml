@@ -33,13 +33,9 @@ jobs:
       - name: Build with PyInstaller
         run: NOSProjectsothersocrrapidocr.venv-win\Scripts\pyinstaller.exe --noconfirm rapidocr_cli.spec
 
-      - name: Zip release artifact
-        run: Compress-Archive -Path dist\rapidocr-cli -DestinationPath rapidocr-cli-windows-x64.zip
-        shell: pwsh
-
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: rapidocr-cli-windows-x64
-          path: rapidocr-cli-windows-x64.zip
+          path: dist\rapidocr-cli
           retention-days: 30
