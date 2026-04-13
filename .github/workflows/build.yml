@@ -18,6 +18,13 @@ jobs:
         with:
           python-version: "3.13"
 
+      - name: Read version from pyproject.toml
+        id: version
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path pyproject.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+          echo "VERSION=$version" >> $env:GITHUB_OUTPUT
+
       - name: Create venv
         run: python -m venv NOSProjectsothersocrrapidocr.venv-win
 
@@ -33,9 +40,14 @@ jobs:
       - name: Build with PyInstaller
         run: NOSProjectsothersocrrapidocr.venv-win\Scripts\pyinstaller.exe --noconfirm rapidocr_cli.spec
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - name: Zip release artifact
+        shell: pwsh
+        run: Compress-Archive -Path dist\rapidocr-cli -DestinationPath rapidocr-cli-windows-x64-v${{ steps.version.outputs.VERSION }}.zip
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
-          name: rapidocr-cli-windows-x64
-          path: dist\rapidocr-cli
-          retention-days: 30
+          tag_name: v${{ steps.version.outputs.VERSION }}
+          name: v${{ steps.version.outputs.VERSION }}
+          files: rapidocr-cli-windows-x64-v${{ steps.version.outputs.VERSION }}.zip
+          make_latest: true
