@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "veridis-ocr-cli"
-version = "0.1.1"
+version = "0.1.2"
 description = "Standalone OCR CLI built on RapidOCR."
 readme = "README.md"
 requires-python = ">=3.13"
