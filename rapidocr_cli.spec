@@ -3,11 +3,14 @@
 from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, collect_submodules, copy_metadata
 
 datas = collect_data_files("rapidocr")
+datas += collect_data_files("shapely")
 datas += copy_metadata("rapidocr")
 datas += copy_metadata("onnxruntime")
 
 binaries = collect_dynamic_libs("onnxruntime")
+binaries += collect_dynamic_libs("shapely")
 hiddenimports = collect_submodules("rapidocr")
+hiddenimports += collect_submodules("shapely")
 
 a = Analysis(
     ["src/rapidocr_cli/cli.py"],
