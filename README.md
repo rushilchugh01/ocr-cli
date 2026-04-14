@@ -33,6 +33,30 @@ The `ocr` subcommand is the default. Passing an image path directly without `ocr
 .\rapidocr-cli.exe ocr .\scans --recursive --format json --output .\results.json
 ```
 
+### OCR selected PDF pages only
+
+```powershell
+.\rapidocr-cli.exe ocr .\bundle.pdf --pages 1,3,5-7
+```
+
+### Use native PDF text first and OCR only fallback pages
+
+```powershell
+.\rapidocr-cli.exe ocr .\bundle.pdf --pdf-mode auto
+```
+
+### Force OCR on every selected PDF page
+
+```powershell
+.\rapidocr-cli.exe ocr .\bundle.pdf --pdf-mode ocr --pdf-dpi 200
+```
+
+### Capture OCR and PDF routing logs to a file
+
+```powershell
+.\rapidocr-cli.exe ocr .\bundle.pdf --log-file .\rapidocr-debug.log
+```
+
 ### OCR with Hindi recognition
 
 ```powershell
@@ -89,6 +113,10 @@ The `ocr` subcommand is the default. Passing an image path directly without `ocr
 | `--word-boxes` | off | Include word-level boxes in JSON output |
 | `--single-char-boxes` | off | Include character-level boxes in JSON output |
 | `--save-vis` | off | Path to save annotated visualization image |
+| `--log-file` | off | Write CLI and RapidOCR logs to a UTF-8 log file |
+| `--pages` | all pages | PDF pages to process, e.g. `1,3,5-7` |
+| `--pdf-mode` | `auto` | PDF mode: `auto`, `text`, `ocr` |
+| `--pdf-dpi` | `144` | Rasterization DPI for PDF pages that need OCR |
 | `--fail-fast` | off | Stop on the first failed input |
 | `--verbose` | off | Show RapidOCR runtime logs |
 
@@ -97,6 +125,7 @@ The `ocr` subcommand is the default. Passing an image path directly without `ocr
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--format` | `text` | Output format: `text`, `json` |
+| `--log-file` | off | Write CLI and RapidOCR logs to a UTF-8 log file |
 | `--rec-lang` | `en` | Recognition language to verify |
 | `--verbose` | off | Show RapidOCR runtime logs |
 
@@ -139,6 +168,8 @@ Structured output with bounding boxes and confidence scores per line. Add `--wor
 
 Bounding boxes are four corner points (quadrilateral, not axis-aligned rectangle) in pixels from the top-left of the image.
 
+For PDF input, JSON keeps one top-level file record and adds `pages[]` with per-page `page_number`, `method_used`, `native_text_score`, `decision`, `fallback_reason`, `text`, and OCR details when OCR was used.
+
 ### `markdown`
 
 RapidOCR's built-in markdown formatter. Useful for documents with simple structure.
@@ -156,6 +187,8 @@ The following PP-OCRv5 mobile models are bundled in the release:
 | Devanagari recognizer | `devanagari_PP-OCRv5_rec_mobile.onnx` | Reads Hindi text |
 
 All models run on CPU via ONNX Runtime. No GPU required.
+
+PDF handling uses PyMuPDF for page parsing, native text extraction, and rasterization of OCR fallback pages.
 
 PP-OCRv5 detection is only packaged as `ch` in `rapidocr 3.8.1`. There is no separate English or Devanagari detector — the Chinese detector generalizes well across scripts.
 

@@ -1,229 +1,91 @@
 from __future__ import annotations
 
 import argparse
-import glob
 import json
-import logging
-import re
 import sys
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Sequence
-from urllib.parse import urlparse
+from typing import Any, Sequence
 
 from rapidocr import LangCls, LangDet, LangRec, LoadImageError, ModelType, OCRVersion, RapidOCR
 
 from rapidocr_cli import __version__
+from rapidocr_cli.engine import build_engine, configure_logging, enum_names, run_ocr_for_source
+from rapidocr_cli.inputs import (
+    InputItem,
+    build_input_item,
+    dedupe_paths,
+    expand_directory,
+    is_pdf_source,
+    is_url,
+    resolve_inputs,
+    sanitize_name,
+)
+from rapidocr_cli.output import (
+    build_record,
+    build_pdf_page_record,
+    build_pdf_record,
+    choose_pdf_visualization_path,
+    choose_visualization_path,
+    is_word_result_item,
+    render_output,
+    render_pdf_markdown,
+    render_pdf_text,
+    serialize_word_results,
+    to_float_list,
+    write_output,
+)
+from rapidocr_cli.pdf import (
+    is_pdf_runtime_ready as is_pdf_runtime_ready_impl,
+    load_pdf_module as load_pdf_module_impl,
+    parse_page_spec as parse_page_spec_impl,
+    process_pdf_input as process_pdf_input_impl,
+    rasterize_pdf_page as rasterize_pdf_page_impl,
+)
+from rapidocr_cli.pdf_quality import (
+    bbox_area,
+    compute_pdf_layout_metrics,
+    normalize_text,
+    ratio,
+    score_native_text_quality,
+)
 
 
 APP_NAME = "rapidocr-cli"
-DEFAULT_PATTERNS = ["*.png", "*.jpg", "*.jpeg", "*.bmp", "*.tif", "*.tiff", "*.webp"]
+DEFAULT_PATTERNS = ["*.png", "*.jpg", "*.jpeg", "*.bmp", "*.tif", "*.tiff", "*.webp", "*.pdf"]
 
 
 class CLIError(RuntimeError):
     pass
 
 
-@dataclass(frozen=True)
-class InputItem:
-    source: str
-    display_name: str
-    safe_stem: str
+def parse_page_spec(page_spec: str | None, page_count: int) -> list[int]:
+    return parse_page_spec_impl(page_spec, page_count, CLIError)
 
 
-def enum_names(enum_cls: Any) -> list[str]:
-    return [item.name.lower() for item in enum_cls]
+def load_pdf_module() -> Any:
+    return load_pdf_module_impl(CLIError)
 
 
-def parse_enum(value: str, enum_cls: Any, field_name: str) -> Any:
-    key = value.strip().replace("-", "_").upper()
-    try:
-        return enum_cls[key]
-    except KeyError as exc:
-        allowed = ", ".join(enum_names(enum_cls))
-        raise CLIError(f"Invalid value for {field_name}: {value}. Expected one of: {allowed}") from exc
+def is_pdf_runtime_ready() -> bool:
+    return is_pdf_runtime_ready_impl(CLIError)
 
 
-def is_url(value: str) -> bool:
-    parsed = urlparse(value)
-    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+def rasterize_pdf_page(page: Any, dpi: int) -> bytes:
+    return rasterize_pdf_page_impl(page, dpi, CLIError)
 
 
-def sanitize_name(value: str) -> str:
-    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", value.strip())
-    return cleaned.strip("._") or "ocr_input"
-
-
-def build_input_item(source: str, display_name: str) -> InputItem:
-    if is_url(source):
-        parsed = urlparse(source)
-        base = Path(parsed.path).stem or parsed.netloc or "url_input"
-    else:
-        base = Path(display_name).stem or "ocr_input"
-    return InputItem(source=source, display_name=display_name, safe_stem=sanitize_name(base))
-
-
-def dedupe_paths(paths: Iterable[Path]) -> list[Path]:
-    seen: set[str] = set()
-    unique: list[Path] = []
-    for path in paths:
-        resolved = str(path.resolve())
-        if resolved in seen:
-            continue
-        seen.add(resolved)
-        unique.append(path)
-    return sorted(unique, key=lambda item: str(item).lower())
-
-
-def expand_directory(path: Path, patterns: Sequence[str], recursive: bool) -> list[Path]:
-    files: list[Path] = []
-    for pattern in patterns:
-        iterator = path.rglob(pattern) if recursive else path.glob(pattern)
-        files.extend(candidate for candidate in iterator if candidate.is_file())
-    return dedupe_paths(files)
-
-
-def resolve_inputs(source: str, patterns: Sequence[str], recursive: bool) -> list[InputItem]:
-    if is_url(source):
-        return [build_input_item(source, source)]
-
-    path = Path(source)
-    if path.exists():
-        if path.is_file():
-            return [build_input_item(str(path), str(path.resolve()))]
-        if path.is_dir():
-            files = expand_directory(path, patterns, recursive)
-            if not files:
-                raise CLIError(f"No matching files found under directory: {path}")
-            return [build_input_item(str(file_path), str(file_path.resolve())) for file_path in files]
-
-    if any(token in source for token in ["*", "?", "["]):
-        matches = dedupe_paths(Path(item) for item in glob.glob(source, recursive=recursive) if Path(item).is_file())
-        if not matches:
-            raise CLIError(f"No files matched glob: {source}")
-        return [build_input_item(str(file_path), str(file_path.resolve())) for file_path in matches]
-
-    raise CLIError(f"Input not found: {source}")
-
-
-def configure_logging(verbose: bool) -> None:
-    logging.disable(logging.NOTSET if verbose else logging.CRITICAL)
-    logging.getLogger("RapidOCR").disabled = not verbose
-    logging.getLogger("RapidOCR").setLevel(logging.INFO if verbose else logging.CRITICAL)
-
-
-def build_engine(args: argparse.Namespace) -> RapidOCR:
-    params = {
-        "Det.lang_type": parse_enum(args.det_lang, LangDet, "--det-lang"),
-        "Cls.lang_type": LangCls.CH,
-        "Rec.lang_type": parse_enum(args.rec_lang, LangRec, "--rec-lang"),
-        "Det.model_type": parse_enum(args.det_model_type, ModelType, "--det-model-type"),
-        "Cls.model_type": parse_enum(args.det_model_type, ModelType, "--det-model-type"),
-        "Rec.model_type": parse_enum(args.rec_model_type, ModelType, "--rec-model-type"),
-        "Det.ocr_version": parse_enum(args.det_version, OCRVersion, "--det-version"),
-        "Cls.ocr_version": parse_enum(args.det_version, OCRVersion, "--det-version"),
-        "Rec.ocr_version": parse_enum(args.rec_version, OCRVersion, "--rec-version"),
-    }
-    return RapidOCR(params=params)
-
-
-def to_float_list(points: Any) -> list[list[float]]:
-    return [[float(x), float(y)] for x, y in points]
-
-
-def serialize_word_results(word_results: Any) -> list[list[dict[str, Any]]]:
-    serialized: list[list[dict[str, Any]]] = []
-    for line in word_results or ():
-        line_items: list[dict[str, Any]] = []
-        for item in line:
-            text, score, box = item
-            line_items.append(
-                {
-                    "txt": str(text),
-                    "score": float(score),
-                    "box": to_float_list(box),
-                }
-            )
-        serialized.append(line_items)
-    return serialized
-
-
-def choose_visualization_path(target: str | None, item: InputItem, multiple_inputs: bool) -> Path | None:
-    if not target:
-        return None
-
-    candidate = Path(target)
-    if multiple_inputs:
-        candidate.mkdir(parents=True, exist_ok=True)
-        return candidate / f"{item.safe_stem}.vis.png"
-
-    if candidate.exists() and candidate.is_dir():
-        candidate.mkdir(parents=True, exist_ok=True)
-        return candidate / f"{item.safe_stem}.vis.png"
-
-    if candidate.suffix:
-        candidate.parent.mkdir(parents=True, exist_ok=True)
-        return candidate
-
-    candidate.mkdir(parents=True, exist_ok=True)
-    return candidate / f"{item.safe_stem}.vis.png"
-
-
-def render_output(records: list[dict[str, Any]], output_format: str) -> str:
-    if output_format == "json":
-        return json.dumps(records, ensure_ascii=False, indent=2)
-
-    if output_format == "markdown":
-        if len(records) == 1:
-            return records[0]["markdown"]
-        chunks = []
-        for record in records:
-            chunks.append(f"## {record['input']}\n\n{record['markdown']}".rstrip())
-        return "\n\n".join(chunks).strip()
-
-    if len(records) == 1:
-        return records[0]["text"]
-
-    chunks = []
-    for record in records:
-        chunks.append(f">>> {record['input']}\n{record['text']}".rstrip())
-    return "\n\n".join(chunks).strip()
-
-
-def write_output(content: str, destination: str | None) -> None:
-    if destination:
-        path = Path(destination)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content, encoding="utf-8")
-        return
-    try:
-        print(content)
-    except UnicodeEncodeError:
-        # Fall back to replacement characters instead of crashing on Windows
-        # consoles that are not configured for UTF-8.
-        sys.stdout.buffer.write(content.encode(sys.stdout.encoding or "utf-8", errors="replace"))
-        sys.stdout.buffer.write(b"\n")
-
-
-def build_record(item: InputItem, result: Any, visualization_path: Path | None) -> dict[str, Any]:
-    lines = result.to_json() or []
-    text = "\n".join(line["txt"] for line in lines)
-    record: dict[str, Any] = {
-        "input": item.display_name,
-        "text": text,
-        "markdown": result.to_markdown(),
-        "lines": lines,
-        "elapsed_seconds": float(result.elapse),
-        "visualization_path": str(visualization_path.resolve()) if visualization_path else None,
-    }
-    if result.word_results:
-        record["word_results"] = serialize_word_results(result.word_results)
-    return record
+def process_pdf_input(
+    item: InputItem,
+    engine: RapidOCR,
+    args: argparse.Namespace,
+    multiple_inputs: bool,
+) -> dict[str, Any]:
+    return process_pdf_input_impl(item, engine, args, multiple_inputs, CLIError)
 
 
 def run_check(args: argparse.Namespace) -> int:
-    configure_logging(args.verbose)
-    engine = build_engine(args)
+    configure_logging(args.verbose, getattr(args, "log_file", None))
+    engine = build_engine(args, CLIError)
 
     import rapidocr
 
@@ -241,6 +103,7 @@ def run_check(args: argparse.Namespace) -> int:
         "det_version": args.det_version,
         "rec_version": args.rec_version,
         "engine_ready": isinstance(engine, RapidOCR),
+        "pdf_runtime_ready": is_pdf_runtime_ready(),
     }
     if args.format == "json":
         print(json.dumps(payload, ensure_ascii=False, indent=2))
@@ -251,9 +114,9 @@ def run_check(args: argparse.Namespace) -> int:
 
 
 def run_ocr(args: argparse.Namespace) -> int:
-    configure_logging(args.verbose)
-    engine = build_engine(args)
-    inputs = resolve_inputs(args.input, args.pattern, args.recursive)
+    configure_logging(args.verbose, getattr(args, "log_file", None))
+    engine = build_engine(args, CLIError)
+    inputs = resolve_inputs(args.input, args.pattern, args.recursive, CLIError)
     multiple_inputs = len(inputs) > 1
 
     records: list[dict[str, Any]] = []
@@ -261,14 +124,14 @@ def run_ocr(args: argparse.Namespace) -> int:
 
     for item in inputs:
         try:
-            result = engine(
-                item.source,
-                return_word_box=args.word_boxes,
-                return_single_char_box=args.single_char_boxes,
-                text_score=args.text_score,
-                box_thresh=args.box_thresh,
-                unclip_ratio=args.unclip_ratio,
-            )
+            if is_pdf_source(item.source):
+                record = process_pdf_input(item, engine, args, multiple_inputs)
+            else:
+                result = run_ocr_for_source(engine, item.source, args)
+                visualization_path = choose_visualization_path(args.save_vis, item, multiple_inputs)
+                if visualization_path is not None:
+                    result.vis(str(visualization_path))
+                record = build_record(item, result, visualization_path)
         except LoadImageError as exc:
             message = f"{item.display_name}: {exc}"
             if args.fail_fast:
@@ -281,11 +144,7 @@ def run_ocr(args: argparse.Namespace) -> int:
                 raise CLIError(message) from exc
             failures.append(message)
             continue
-
-        visualization_path = choose_visualization_path(args.save_vis, item, multiple_inputs)
-        if visualization_path is not None:
-            result.vis(str(visualization_path))
-        records.append(build_record(item, result, visualization_path))
+        records.append(record)
 
     if not records and failures:
         for failure in failures:
@@ -359,6 +218,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="Recognizer model generation.",
     )
     ocr_parser.add_argument("--fail-fast", action="store_true", help="Stop on the first failed input.")
+    ocr_parser.add_argument("--log-file", help="Write runtime logs to a UTF-8 log file.")
+    ocr_parser.add_argument("--pages", help="PDF pages to process, e.g. 1,3,5-7. Applies only to PDF input.")
+    ocr_parser.add_argument(
+        "--pdf-mode",
+        choices=["auto", "text", "ocr"],
+        default="auto",
+        help="PDF extraction mode: native text first (`auto`), text-only (`text`), or OCR every page (`ocr`).",
+    )
+    ocr_parser.add_argument(
+        "--pdf-dpi",
+        type=int,
+        default=144,
+        help="Rasterization DPI for PDF pages that need OCR.",
+    )
     ocr_parser.add_argument("--verbose", action="store_true", help="Show RapidOCR runtime logs.")
 
     check_parser = subparsers.add_parser("check", help="Verify that the OCR runtime and bundled models are ready.")
@@ -389,6 +262,7 @@ def build_parser() -> argparse.ArgumentParser:
         default="ppocrv5",
         help="Recognizer model generation.",
     )
+    check_parser.add_argument("--log-file", help="Write runtime logs to a UTF-8 log file.")
     check_parser.add_argument("--verbose", action="store_true", help="Show RapidOCR runtime logs.")
 
     return parser

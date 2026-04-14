@@ -6,8 +6,8 @@ $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $python = Join-Path $root "NOSProjectsothersocrrapidocr.venv-win\Scripts\python.exe"
-$pyinstaller = Join-Path $root "NOSProjectsothersocrrapidocr.venv-win\Scripts\pyinstaller.exe"
 $modelsDir = Join-Path $root "NOSProjectsothersocrrapidocr.venv-win\Lib\site-packages\rapidocr\models"
+$distExe = Join-Path $root "dist\rapidocr-cli\rapidocr-cli.exe"
 
 if (-not (Test-Path $python)) {
     throw "Windows venv not found at $python"
@@ -24,9 +24,23 @@ if ($Clean) {
 Push-Location $root
 try {
     & $python -m pip install -e .
+    if ($LASTEXITCODE -ne 0) {
+        throw "pip install failed with exit code $LASTEXITCODE"
+    }
+
     & $python .\scripts\preload_models.py
+    if ($LASTEXITCODE -ne 0) {
+        throw "Model preload failed with exit code $LASTEXITCODE"
+    }
+
     Write-Host "RapidOCR models ready"
-    & $pyinstaller --noconfirm rapidocr_cli.spec
+    & $python -m PyInstaller --noconfirm rapidocr_cli.spec
+    if ($LASTEXITCODE -ne 0) {
+        throw "PyInstaller failed with exit code $LASTEXITCODE"
+    }
+    if (-not (Test-Path $distExe)) {
+        throw "PyInstaller completed but expected artifact was not found at $distExe"
+    }
     Write-Host "Built one-folder CLI at dist\rapidocr-cli\rapidocr-cli.exe"
 }
 finally {

@@ -16,6 +16,9 @@ dist/
 # Test inputs and outputs
 *.vis.png
 
+# Test timing results (local benchmarks)
+tests/results/
+
 # Web app runtime data
 .webapp_data/
 
