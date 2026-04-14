@@ -42,12 +42,12 @@ jobs:
 
       - name: Zip release artifact
         shell: pwsh
-        run: Compress-Archive -Path dist\rapidocr-cli -DestinationPath rapidocr-cli-windows-x64-v${{ steps.version.outputs.VERSION }}.zip
+        run: Compress-Archive -Path dist\veridis-ocr-cli -DestinationPath veridis-ocr-cli-windows-x64-v${{ steps.version.outputs.VERSION }}.zip
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.version.outputs.VERSION }}
           name: v${{ steps.version.outputs.VERSION }}
-          files: rapidocr-cli-windows-x64-v${{ steps.version.outputs.VERSION }}.zip
+          files: veridis-ocr-cli-windows-x64-v${{ steps.version.outputs.VERSION }}.zip
           make_latest: true

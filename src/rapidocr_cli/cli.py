@@ -50,7 +50,7 @@ from rapidocr_cli.pdf_quality import (
 )
 
 
-APP_NAME = "rapidocr-cli"
+APP_NAME = "veridis-ocr-cli"
 DEFAULT_PATTERNS = ["*.png", "*.jpg", "*.jpeg", "*.bmp", "*.tif", "*.tiff", "*.webp", "*.pdf"]
 
 

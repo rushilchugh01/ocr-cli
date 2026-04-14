@@ -7,7 +7,7 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $python = Join-Path $root "NOSProjectsothersocrrapidocr.venv-win\Scripts\python.exe"
 $modelsDir = Join-Path $root "NOSProjectsothersocrrapidocr.venv-win\Lib\site-packages\rapidocr\models"
-$distExe = Join-Path $root "dist\rapidocr-cli\rapidocr-cli.exe"
+$distExe = Join-Path $root "dist\veridis-ocr-cli\veridis-ocr-cli.exe"
 
 if (-not (Test-Path $python)) {
     throw "Windows venv not found at $python"
@@ -41,7 +41,7 @@ try {
     if (-not (Test-Path $distExe)) {
         throw "PyInstaller completed but expected artifact was not found at $distExe"
     }
-    Write-Host "Built one-folder CLI at dist\rapidocr-cli\rapidocr-cli.exe"
+    Write-Host "Built one-folder CLI at dist\veridis-ocr-cli\veridis-ocr-cli.exe"
 }
 finally {
     Pop-Location

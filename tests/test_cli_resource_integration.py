@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-CLI_EXE = ROOT / "NOSProjectsothersocrrapidocr.venv-win" / "Scripts" / "rapidocr-cli.exe"
+CLI_EXE = ROOT / "NOSProjectsothersocrrapidocr.venv-win" / "Scripts" / "veridis-ocr-cli.exe"
 RESOURCE_DIR = ROOT / "tests" / "resources"
 
 
