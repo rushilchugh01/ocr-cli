@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import argparse
-from typing import Any
+import math
+from typing import Any, Iterable
 
 from rapidocr import RapidOCR
 
@@ -15,6 +16,9 @@ from rapidocr_cli.output import (
 )
 from rapidocr_cli.pdf_quality import compute_pdf_layout_metrics, score_native_text_quality
 from rapidocr_cli.types import InputItem, PDFPageDecision
+
+
+MAX_PDF_RASTER_BYTES = 256 * 1024 * 1024
 
 
 def load_pdf_module(error_type: type[Exception]) -> Any:
@@ -70,20 +74,38 @@ def parse_page_spec(page_spec: str | None, page_count: int, error_type: type[Exc
     return sorted(selected)
 
 
+def estimate_pdf_raster_size(page: Any, dpi: int) -> tuple[int, int, int]:
+    rect = getattr(page, "rect", None)
+    width_points = max(1.0, float(getattr(rect, "width", 0.0) or 0.0))
+    height_points = max(1.0, float(getattr(rect, "height", 0.0) or 0.0))
+    scale = max(float(dpi), 72.0) / 72.0
+    width_px = max(1, int(math.ceil(width_points * scale)))
+    height_px = max(1, int(math.ceil(height_points * scale)))
+    return width_px, height_px, width_px * height_px * 3
+
+
 def rasterize_pdf_page(page: Any, dpi: int, error_type: type[Exception]) -> bytes:
     fitz = load_pdf_module(error_type)
+    width_px, height_px, estimated_bytes = estimate_pdf_raster_size(page, dpi)
+    if estimated_bytes > MAX_PDF_RASTER_BYTES:
+        estimated_mebibytes = estimated_bytes / (1024 * 1024)
+        raise error_type(
+            f"Requested PDF raster is too large at {dpi} DPI "
+            f"({width_px}x{height_px}, about {estimated_mebibytes:.1f} MiB raw RGB). "
+            "Lower --pdf-dpi or split the PDF."
+        )
     scale = max(float(dpi), 72.0) / 72.0
     pixmap = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
     return pixmap.tobytes("png")
 
 
-def process_pdf_input(
+def iter_pdf_page_records(
     item: InputItem,
     engine: RapidOCR,
     args: argparse.Namespace,
     multiple_inputs: bool,
     error_type: type[Exception],
-) -> dict[str, Any]:
+) -> Iterable[PDFPageDecision]:
     if is_url(item.source):
         raise error_type("PDF URLs are not supported yet. Download the PDF locally and try again.")
 
@@ -95,7 +117,6 @@ def process_pdf_input(
 
     try:
         selected_pages = parse_page_spec(args.pages, document.page_count, error_type)
-        page_records: list[PDFPageDecision] = []
         for page_number in selected_pages:
             page = document.load_page(page_number - 1)
             layout_metrics = compute_pdf_layout_metrics(page)
@@ -108,37 +129,33 @@ def process_pdf_input(
 
             quality = score_native_text_quality(native_text, layout_metrics)
             if args.pdf_mode == "text":
-                page_records.append(
-                    build_pdf_page_record(
-                        item=item,
-                        page_number=page_number,
-                        quality=quality,
-                        method_used="native_text",
-                        text=quality["normalized_text"],
-                        markdown=quality["normalized_text"],
-                        lines=[],
-                        elapsed_seconds=0.0,
-                        visualization_path=None,
-                        fallback_reason=None,
-                    )
+                yield build_pdf_page_record(
+                    item=item,
+                    page_number=page_number,
+                    quality=quality,
+                    method_used="native_text",
+                    text=quality["normalized_text"],
+                    markdown=quality["normalized_text"],
+                    lines=[],
+                    elapsed_seconds=0.0,
+                    visualization_path=None,
+                    fallback_reason=None,
                 )
                 continue
 
             should_use_native = args.pdf_mode == "auto" and quality["accepted"]
             if should_use_native:
-                page_records.append(
-                    build_pdf_page_record(
-                        item=item,
-                        page_number=page_number,
-                        quality=quality,
-                        method_used="native_text",
-                        text=quality["normalized_text"],
-                        markdown=quality["normalized_text"],
-                        lines=[],
-                        elapsed_seconds=0.0,
-                        visualization_path=None,
-                        fallback_reason=None,
-                    )
+                yield build_pdf_page_record(
+                    item=item,
+                    page_number=page_number,
+                    quality=quality,
+                    method_used="native_text",
+                    text=quality["normalized_text"],
+                    markdown=quality["normalized_text"],
+                    lines=[],
+                    elapsed_seconds=0.0,
+                    visualization_path=None,
+                    fallback_reason=None,
                 )
                 continue
 
@@ -152,21 +169,28 @@ def process_pdf_input(
             text = "\n".join(line["txt"] for line in lines)
             fallback_reason = "forced_ocr" if args.pdf_mode == "ocr" else "garbled_or_missing_native_text"
             word_results = serialize_word_results(result.word_results) if result.word_results is not None else None
-            page_records.append(
-                build_pdf_page_record(
-                    item=item,
-                    page_number=page_number,
-                    quality=quality,
-                    method_used="ocr",
-                    text=text,
-                    markdown=result.to_markdown(),
-                    lines=lines,
-                    elapsed_seconds=float(result.elapse),
-                    visualization_path=visualization_path,
-                    fallback_reason=fallback_reason,
-                    word_results=word_results,
-                )
+            yield build_pdf_page_record(
+                item=item,
+                page_number=page_number,
+                quality=quality,
+                method_used="ocr",
+                text=text,
+                markdown=result.to_markdown(),
+                lines=lines,
+                elapsed_seconds=float(result.elapse),
+                visualization_path=visualization_path,
+                fallback_reason=fallback_reason,
+                word_results=word_results,
             )
-        return build_pdf_record(item, page_records)
     finally:
         document.close()
+
+
+def process_pdf_input(
+    item: InputItem,
+    engine: RapidOCR,
+    args: argparse.Namespace,
+    multiple_inputs: bool,
+    error_type: type[Exception],
+) -> dict[str, Any]:
+    return build_pdf_record(item, iter_pdf_page_records(item, engine, args, multiple_inputs, error_type))

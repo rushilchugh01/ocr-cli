@@ -22,7 +22,11 @@ def test_build_record_skips_empty_word_results(cli_module):
     record = cli_module.build_record(item, FakeResult(), None)
 
     assert record["input"] == item.display_name
+    assert record["status"] == "no_text_detected"
+    assert record["reason"] == "no_valid_text_detected"
+    assert record["message"] == "No valid text detected."
     assert record["text"] == ""
+    assert record["markdown"] == ""
     assert record["lines"] == []
     assert record["elapsed_seconds"] == pytest.approx(0.123)
     assert record["visualization_path"] is None

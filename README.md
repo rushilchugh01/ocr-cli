@@ -101,7 +101,7 @@ The `ocr` subcommand is the default. Passing an image path directly without `ocr
 | `--output` | stdout | Write output to a file instead of stdout |
 | `--recursive` | off | Recurse into subdirectories when input is a directory |
 | `--pattern` | image extensions | Glob pattern for directory input. Repeatable. |
-| `--rec-lang` | `en` | Recognition language: `en`, `devanagari`, `ch` |
+| `--rec-lang` | `devanagari` | Recognition language: `en`, `devanagari`, `ch` |
 | `--det-lang` | `ch` | Detection language family. Only `ch` is available for PP-OCRv5. |
 | `--rec-version` | `ppocrv5` | Recognizer model generation: `ppocrv5`, `ppocrv4`, `ppocrv3` |
 | `--det-version` | `ppocrv5` | Detector model generation: `ppocrv5`, `ppocrv4`, `ppocrv3` |
@@ -126,7 +126,7 @@ The `ocr` subcommand is the default. Passing an image path directly without `ocr
 |------|---------|-------------|
 | `--format` | `text` | Output format: `text`, `json` |
 | `--log-file` | off | Write CLI and RapidOCR logs to a UTF-8 log file |
-| `--rec-lang` | `en` | Recognition language to verify |
+| `--rec-lang` | `devanagari` | Recognition language to verify |
 | `--verbose` | off | Show RapidOCR runtime logs |
 
 ---
@@ -168,11 +168,31 @@ Structured output with bounding boxes and confidence scores per line. Add `--wor
 
 Bounding boxes are four corner points (quadrilateral, not axis-aligned rectangle) in pixels from the top-left of the image.
 
-For PDF input, JSON keeps one top-level file record and adds `pages[]` with per-page `page_number`, `method_used`, `native_text_score`, `decision`, `fallback_reason`, `text`, and OCR details when OCR was used.
+Every OCR record includes a small status contract:
+
+- `status`: `ok`, `no_text_detected`, or `error`
+- `reason`: machine-readable detail such as `no_valid_text_detected`
+- `message`: short human-readable English message or `null`
+
+For image records:
+
+- `status: "ok"` means OCR returned usable text
+- `status: "no_text_detected"` means OCR ran successfully but returned no usable text
+- `text`, `markdown`, and `lines` stay empty for `no_text_detected`
+
+For PDF input, JSON keeps one top-level file record and adds `pages[]` with per-page `page_number`, `status`, `reason`, `message`, `method_used`, `native_text_score`, `decision`, `fallback_reason`, `text`, and OCR details when OCR was used. PDF file records also include:
+
+- `page_count`
+- `pages_with_text`
+- `no_text_pages`
+
+If every selected page is empty, the top-level PDF record uses `status: "no_text_detected"` with `reason: "no_valid_text_detected"`.
 
 ### `markdown`
 
 RapidOCR's built-in markdown formatter. Useful for documents with simple structure.
+
+If no usable text is found, `text` and `markdown` output stay empty. The CLI prints a short notice to `stderr` such as `No valid text detected: tree.jpg` instead of injecting that message into the extracted content.
 
 ---
 

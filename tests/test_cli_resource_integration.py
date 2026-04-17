@@ -60,8 +60,11 @@ def test_tree_resource_returns_empty_text():
     record = payload[0]
     assert record["input_type"] == "image"
     assert record["status"] == "no_text_detected"
+    assert record["reason"] == "no_valid_text_detected"
+    assert record["message"] == "No valid text detected."
     assert record["method_used"] == "ocr"
     assert record["text"] == ""
+    assert record["markdown"] == ""
     assert record["lines"] == []
     assert record["word_results"] == [[]]
 
@@ -74,6 +77,8 @@ def test_small_image_pdf_returns_page_records():
     assert record["input_type"] == "pdf"
     assert record["status"] == "ok"
     assert record["page_count"] == 5
+    assert record["pages_with_text"] >= 1
+    assert record["no_text_pages"] >= 0
     assert len(record["pages"]) == 5
     assert record["pages"][0]["method_used"] == "ocr"
     assert record["pages"][0]["status"] == "ok"
@@ -88,6 +93,8 @@ def test_english_hindi_resource_returns_mixed_text():
     record = payload[0]
     assert record["input_type"] == "image"
     assert record["status"] == "ok"
+    assert record["reason"] is None
+    assert record["message"] is None
     assert record["method_used"] == "ocr"
     assert "GOVERNMENT OF MAHARASHTRA" in record["text"]
     assert "BIRTH CERTIFICATE" in record["text"]

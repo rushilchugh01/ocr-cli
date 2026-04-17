@@ -20,6 +20,8 @@ class PDFPageDecision:
     lines: list[dict[str, Any]]
     elapsed_seconds: float
     status: str
+    reason: str | None
+    message: str | None
     native_text_found: bool
     native_text_accepted: bool
     native_text_score: float

@@ -21,6 +21,7 @@ from rapidocr_cli.inputs import (
     sanitize_name,
 )
 from rapidocr_cli.output import (
+    OutputSession,
     build_record,
     build_pdf_page_record,
     build_pdf_record,
@@ -35,6 +36,7 @@ from rapidocr_cli.output import (
     write_output,
 )
 from rapidocr_cli.pdf import (
+    iter_pdf_page_records as iter_pdf_page_records_impl,
     is_pdf_runtime_ready as is_pdf_runtime_ready_impl,
     load_pdf_module as load_pdf_module_impl,
     parse_page_spec as parse_page_spec_impl,
@@ -83,6 +85,15 @@ def process_pdf_input(
     return process_pdf_input_impl(item, engine, args, multiple_inputs, CLIError)
 
 
+def iter_pdf_page_records(
+    item: InputItem,
+    engine: RapidOCR,
+    args: argparse.Namespace,
+    multiple_inputs: bool,
+):
+    return iter_pdf_page_records_impl(item, engine, args, multiple_inputs, CLIError)
+
+
 def run_check(args: argparse.Namespace) -> int:
     configure_logging(args.verbose, getattr(args, "log_file", None))
     engine = build_engine(args, CLIError)
@@ -113,46 +124,61 @@ def run_check(args: argparse.Namespace) -> int:
     return 0
 
 
+def emit_no_text_notice(record: dict[str, Any], output_format: str) -> None:
+    if output_format == "json":
+        return
+    if record.get("status") != "no_text_detected":
+        return
+    print(f"No valid text detected: {record['input']}", file=sys.stderr)
+
+
 def run_ocr(args: argparse.Namespace) -> int:
     configure_logging(args.verbose, getattr(args, "log_file", None))
     engine = build_engine(args, CLIError)
     inputs = resolve_inputs(args.input, args.pattern, args.recursive, CLIError)
     multiple_inputs = len(inputs) > 1
 
-    records: list[dict[str, Any]] = []
     failures: list[str] = []
+    success_count = 0
+    session = OutputSession(args.format, args.output, multiple_inputs)
 
-    for item in inputs:
-        try:
-            if is_pdf_source(item.source):
-                record = process_pdf_input(item, engine, args, multiple_inputs)
-            else:
-                result = run_ocr_for_source(engine, item.source, args)
-                visualization_path = choose_visualization_path(args.save_vis, item, multiple_inputs)
-                if visualization_path is not None:
-                    result.vis(str(visualization_path))
-                record = build_record(item, result, visualization_path)
-        except LoadImageError as exc:
-            message = f"{item.display_name}: {exc}"
-            if args.fail_fast:
-                raise CLIError(message) from exc
-            failures.append(message)
-            continue
-        except Exception as exc:
-            message = f"{item.display_name}: {exc}"
-            if args.fail_fast:
-                raise CLIError(message) from exc
-            failures.append(message)
-            continue
-        records.append(record)
+    try:
+        for item in inputs:
+            try:
+                if is_pdf_source(item.source):
+                    record = session.add_pdf_record(item, iter_pdf_page_records(item, engine, args, multiple_inputs))
+                else:
+                    result = run_ocr_for_source(engine, item.source, args)
+                    visualization_path = choose_visualization_path(args.save_vis, item, multiple_inputs)
+                    if visualization_path is not None:
+                        result.vis(str(visualization_path))
+                    record = build_record(item, result, visualization_path)
+                    session.add_record(record)
+                emit_no_text_notice(record, args.format)
+            except LoadImageError as exc:
+                message = f"{item.display_name}: {exc}"
+                if args.fail_fast:
+                    raise CLIError(message) from exc
+                failures.append(message)
+                continue
+            except Exception as exc:
+                message = f"{item.display_name}: {exc}"
+                if args.fail_fast:
+                    raise CLIError(message) from exc
+                failures.append(message)
+                continue
+            success_count += 1
+    except Exception:
+        session.finalize(commit=False)
+        raise
 
-    if not records and failures:
+    if not success_count and failures:
+        session.finalize(commit=False)
         for failure in failures:
             print(f"ERROR: {failure}", file=sys.stderr)
         return 2
 
-    content = render_output(records, args.format)
-    write_output(content, args.output)
+    session.finalize(commit=True)
 
     if failures:
         for failure in failures:
@@ -192,7 +218,12 @@ def build_parser() -> argparse.ArgumentParser:
     ocr_parser.add_argument("--box-thresh", type=float, help="Override the detector box threshold.")
     ocr_parser.add_argument("--unclip-ratio", type=float, help="Override the detector unclip ratio.")
     ocr_parser.add_argument("--det-lang", choices=enum_names(LangDet), default="ch", help="Detection language family.")
-    ocr_parser.add_argument("--rec-lang", choices=enum_names(LangRec), default="en", help="Recognition language.")
+    ocr_parser.add_argument(
+        "--rec-lang",
+        choices=enum_names(LangRec),
+        default="devanagari",
+        help="Recognition language.",
+    )
     ocr_parser.add_argument(
         "--det-model-type",
         choices=enum_names(ModelType),
@@ -237,7 +268,12 @@ def build_parser() -> argparse.ArgumentParser:
     check_parser = subparsers.add_parser("check", help="Verify that the OCR runtime and bundled models are ready.")
     check_parser.add_argument("--format", choices=["text", "json"], default="text", help="Output format.")
     check_parser.add_argument("--det-lang", choices=enum_names(LangDet), default="ch", help="Detection language family.")
-    check_parser.add_argument("--rec-lang", choices=enum_names(LangRec), default="en", help="Recognition language.")
+    check_parser.add_argument(
+        "--rec-lang",
+        choices=enum_names(LangRec),
+        default="devanagari",
+        help="Recognition language.",
+    )
     check_parser.add_argument(
         "--det-model-type",
         choices=enum_names(ModelType),
