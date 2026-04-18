@@ -365,7 +365,7 @@ class OutputSession:
         self.output_format = output_format
         self.destination = destination
         self.multiple_inputs = multiple_inputs
-        self._root_dir = Path(tempfile.mkdtemp(prefix="rapidocr-cli-"))
+        self._root_dir = Path(tempfile.mkdtemp(prefix="veridis-ocr-cli-"))
         self._output_path = self._root_dir / "output.tmp"
         self._handle = self._output_path.open("w", encoding="utf-8")
         self._record_count = 0
