@@ -16,59 +16,78 @@ jobs:
   version-bump:
     runs-on: ubuntu-latest
     outputs:
-      should_build: ${{ steps.mode.outputs.should_build }}
+      build_ref: ${{ steps.finalize.outputs.build_ref }}
 
     steps:
-      - name: Decide whether to bump or build
-        id: mode
-        shell: bash
-        run: |
-          if [[ "${{ github.actor }}" == "github-actions[bot]" ]] || [[ "${{ github.event.head_commit.message }}" == chore:\ bump\ version\ to* ]]; then
-            echo "should_build=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "should_build=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Checkout
-        if: steps.mode.outputs.should_build == 'false'
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+      - name: Resolve build source
+        id: resolve
+        shell: bash
+        run: |
+          if [[ "${{ github.event.head_commit.message }}" == chore:\ bump\ version\ to* ]]; then
+            echo "should_bump=false" >> "$GITHUB_OUTPUT"
+            echo "build_ref=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git fetch origin main --depth=2
+          remote_head="$(git rev-parse origin/main)"
+          remote_message="$(git log -1 --pretty=%B "$remote_head")"
+          remote_parent="$(git rev-list --parents -n1 "$remote_head" | awk '{print $2}')"
+
+          if [[ "$remote_message" == chore:\ bump\ version\ to* ]] && [[ "$remote_parent" == "$GITHUB_SHA" ]]; then
+            echo "should_bump=false" >> "$GITHUB_OUTPUT"
+            echo "build_ref=$remote_head" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_bump=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Set up Python 3.12
-        if: steps.mode.outputs.should_build == 'false'
+        if: steps.resolve.outputs.should_bump == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Bump patch version
-        if: steps.mode.outputs.should_build == 'false'
-        id: bump
+      - name: Commit version bump
+        if: steps.resolve.outputs.should_bump == 'true'
+        id: commit
         shell: bash
         run: |
           new_version="$(python scripts/bump_version.py)"
-          echo "new_version=$new_version" >> "$GITHUB_OUTPUT"
-
-      - name: Commit version bump
-        if: steps.mode.outputs.should_build == 'false'
-        shell: bash
-        run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add pyproject.toml src/rapidocr_cli/__init__.py
-          git commit -m "chore: bump version to ${{ steps.bump.outputs.new_version }}"
+          git commit -m "chore: bump version to $new_version"
+          build_ref="$(git rev-parse HEAD)"
           git push origin HEAD:main
+          echo "build_ref=$build_ref" >> "$GITHUB_OUTPUT"
+
+      - name: Finalize build ref
+        id: finalize
+        shell: bash
+        run: |
+          if [[ "${{ steps.resolve.outputs.should_bump }}" == "true" ]]; then
+            echo "build_ref=${{ steps.commit.outputs.build_ref }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "build_ref=${{ steps.resolve.outputs.build_ref }}" >> "$GITHUB_OUTPUT"
+          fi
 
   metadata:
     needs: version-bump
-    if: needs.version-bump.outputs.should_build == 'true'
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
+      build_ref: ${{ needs.version-bump.outputs.build_ref }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version-bump.outputs.build_ref }}
 
       - name: Read version from pyproject.toml
         id: version
@@ -89,6 +108,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.metadata.outputs.build_ref }}
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
@@ -133,6 +154,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.metadata.outputs.build_ref }}
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
@@ -175,6 +198,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.metadata.outputs.build_ref }}
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
