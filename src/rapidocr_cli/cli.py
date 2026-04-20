@@ -42,6 +42,7 @@ from rapidocr_cli.pdf import (
     parse_page_spec as parse_page_spec_impl,
     process_pdf_input as process_pdf_input_impl,
     rasterize_pdf_page as rasterize_pdf_page_impl,
+    resolve_pdf_selected_pages as resolve_pdf_selected_pages_impl,
 )
 from rapidocr_cli.pdf_quality import (
     bbox_area,
@@ -50,6 +51,7 @@ from rapidocr_cli.pdf_quality import (
     ratio,
     score_native_text_quality,
 )
+from rapidocr_cli.resume import PDFResumeState, ResumeManager
 
 
 APP_NAME = "veridis-ocr-cli"
@@ -94,6 +96,10 @@ def iter_pdf_page_records(
     return iter_pdf_page_records_impl(item, engine, args, multiple_inputs, CLIError)
 
 
+def resolve_pdf_selected_pages(item: InputItem, args: argparse.Namespace) -> list[int]:
+    return resolve_pdf_selected_pages_impl(item, args, CLIError)
+
+
 def run_check(args: argparse.Namespace) -> int:
     configure_logging(args.verbose, getattr(args, "log_file", None))
     engine = build_engine(args, CLIError)
@@ -132,11 +138,61 @@ def emit_no_text_notice(record: dict[str, Any], output_format: str) -> None:
     print(f"No valid text detected: {record['input']}", file=sys.stderr)
 
 
+def build_page_spec(page_numbers: list[int]) -> str:
+    return ",".join(str(page_number) for page_number in page_numbers)
+
+
+def iter_resumed_pdf_page_records(
+    item: InputItem,
+    engine: RapidOCR,
+    args: argparse.Namespace,
+    multiple_inputs: bool,
+    resume_state: PDFResumeState,
+    resume_manager: ResumeManager,
+) -> tuple[object, list[int]]:
+    observed_pages = [page.page_number for page in resume_state.restored_pages]
+
+    def generator():
+        for page in resume_state.restored_pages:
+            yield page
+
+        if not resume_state.remaining_pages:
+            return
+
+        resumed_args = argparse.Namespace(**vars(args))
+        resumed_args.pages = build_page_spec(resume_state.remaining_pages)
+        for page in iter_pdf_page_records(item, engine, resumed_args, multiple_inputs):
+            observed_pages.append(page.page_number)
+            resume_manager.append_pdf_page(item, resume_state.selected_pages, page)
+            yield page
+
+    return generator(), observed_pages
+
+
+def iter_checkpointed_pdf_page_records(
+    item: InputItem,
+    engine: RapidOCR,
+    args: argparse.Namespace,
+    multiple_inputs: bool,
+    resume_manager: ResumeManager,
+) -> tuple[object, list[int]]:
+    observed_pages: list[int] = []
+
+    def generator():
+        for page in iter_pdf_page_records(item, engine, args, multiple_inputs):
+            observed_pages.append(page.page_number)
+            resume_manager.append_pdf_page(item, None, page)
+            yield page
+
+    return generator(), observed_pages
+
+
 def run_ocr(args: argparse.Namespace) -> int:
     configure_logging(args.verbose, getattr(args, "log_file", None))
     engine = build_engine(args, CLIError)
     inputs = resolve_inputs(args.input, args.pattern, args.recursive, CLIError)
     multiple_inputs = len(inputs) > 1
+    resume_manager = ResumeManager.from_run(args, inputs)
 
     failures: list[str] = []
     success_count = 0
@@ -146,13 +202,40 @@ def run_ocr(args: argparse.Namespace) -> int:
         for item in inputs:
             try:
                 if is_pdf_source(item.source):
-                    record = session.add_pdf_record(item, iter_pdf_page_records(item, engine, args, multiple_inputs))
+                    if resume_manager and resume_manager.has_checkpoint(item):
+                        resume_state = resume_manager.prepare_pdf(item, resolve_pdf_selected_pages(item, args))
+                        page_records, observed_pages = iter_resumed_pdf_page_records(
+                            item,
+                            engine,
+                            args,
+                            multiple_inputs,
+                            resume_state,
+                            resume_manager,
+                        )
+                    elif resume_manager:
+                        page_records, observed_pages = iter_checkpointed_pdf_page_records(
+                            item,
+                            engine,
+                            args,
+                            multiple_inputs,
+                            resume_manager,
+                        )
+                    else:
+                        page_records = iter_pdf_page_records(item, engine, args, multiple_inputs)
+                        observed_pages = []
+                    record = session.add_pdf_record(item, page_records)
+                    if resume_manager:
+                        resume_manager.complete_pdf(item, observed_pages)
                 else:
-                    result = run_ocr_for_source(engine, item.source, args)
-                    visualization_path = choose_visualization_path(args.save_vis, item, multiple_inputs)
-                    if visualization_path is not None:
-                        result.vis(str(visualization_path))
-                    record = build_record(item, result, visualization_path)
+                    record = resume_manager.restore_image_record(item) if resume_manager else None
+                    if record is None:
+                        result = run_ocr_for_source(engine, item.source, args)
+                        visualization_path = choose_visualization_path(args.save_vis, item, multiple_inputs)
+                        if visualization_path is not None:
+                            result.vis(str(visualization_path))
+                        record = build_record(item, result, visualization_path)
+                        if resume_manager:
+                            resume_manager.save_image_record(item, record)
                     session.add_record(record)
                 emit_no_text_notice(record, args.format)
             except LoadImageError as exc:
@@ -179,6 +262,8 @@ def run_ocr(args: argparse.Namespace) -> int:
         return 2
 
     session.finalize(commit=True)
+    if resume_manager and not failures:
+        resume_manager.cleanup()
 
     if failures:
         for failure in failures:

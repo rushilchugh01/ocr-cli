@@ -186,6 +186,26 @@ def iter_pdf_page_records(
         document.close()
 
 
+def resolve_pdf_selected_pages(
+    item: InputItem,
+    args: argparse.Namespace,
+    error_type: type[Exception],
+) -> list[int]:
+    if is_url(item.source):
+        raise error_type("PDF URLs are not supported yet. Download the PDF locally and try again.")
+
+    fitz = load_pdf_module(error_type)
+    try:
+        document = fitz.open(item.source)
+    except Exception as exc:
+        raise error_type(f"Failed to open PDF: {item.display_name}: {exc}") from exc
+
+    try:
+        return parse_page_spec(args.pages, document.page_count, error_type)
+    finally:
+        document.close()
+
+
 def process_pdf_input(
     item: InputItem,
     engine: RapidOCR,

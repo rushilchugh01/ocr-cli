@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import sys
 import tempfile
@@ -155,6 +156,28 @@ def build_pdf_page_payload(page: PDFPageDecision) -> dict[str, Any]:
     if page.word_results is not None:
         payload["word_results"] = page.word_results
     return payload
+
+
+def parse_pdf_page_payload(payload: dict[str, Any]) -> PDFPageDecision:
+    return PDFPageDecision(
+        page_number=int(payload["page_number"]),
+        method_used=str(payload["method_used"]),
+        text=str(payload.get("text") or ""),
+        markdown=str(payload.get("markdown") or ""),
+        lines=list(payload.get("lines") or []),
+        elapsed_seconds=float(payload.get("elapsed_seconds") or 0.0),
+        status=str(payload["status"]),
+        reason=payload.get("reason"),
+        message=payload.get("message"),
+        native_text_found=bool(payload.get("native_text_found")),
+        native_text_accepted=bool(payload.get("native_text_accepted")),
+        native_text_score=float(payload.get("native_text_score") or 0.0),
+        decision=str(payload.get("decision") or ""),
+        fallback_reason=payload.get("fallback_reason"),
+        quality_metrics=dict(payload.get("quality_metrics") or {}),
+        visualization_path=payload.get("visualization_path"),
+        word_results=payload.get("word_results"),
+    )
 
 
 def render_pdf_text(page_records: Iterable[PDFPageDecision]) -> str:
@@ -329,6 +352,9 @@ class PDFRecordSpool:
     def append_page(self, page: PDFPageDecision) -> None:
         self._pages_handle.write(json.dumps(build_pdf_page_payload(page), ensure_ascii=False))
         self._pages_handle.write("\n")
+        self._pages_handle.flush()
+        if hasattr(os, "fsync"):
+            os.fsync(self._pages_handle.fileno())
         self.page_count += 1
         self.total_elapsed += page.elapsed_seconds
         if page.status == "no_text_detected":
@@ -339,6 +365,7 @@ class PDFRecordSpool:
             if not self._first_text_chunk:
                 self._text_handle.write("\n\n")
             self._text_handle.write(f"--- Page {page.page_number} ---\n{text_body}")
+            self._text_handle.flush()
             self._first_text_chunk = False
 
         markdown_body = page.markdown.strip() or text_body
@@ -346,6 +373,7 @@ class PDFRecordSpool:
             if not self._first_markdown_chunk:
                 self._markdown_handle.write("\n\n")
             self._markdown_handle.write(f"## Page {page.page_number}\n\n{markdown_body}")
+            self._markdown_handle.flush()
             self._first_markdown_chunk = False
 
     def close(self) -> None:
