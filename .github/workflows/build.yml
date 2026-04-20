@@ -1,4 +1,4 @@
-name: Build Windows CLI
+name: Build CLI Binaries
 
 on:
   push:
@@ -9,48 +9,132 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  metadata:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read version from pyproject.toml
+        id: version
+        shell: bash
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import tomllib
+          from pathlib import Path
+
+          version = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
+          print(f"version={version}")
+          PY
+
+  build-windows:
+    needs: metadata
     runs-on: windows-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.13
+      - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
-
-      - name: Read version from pyproject.toml
-        id: version
-        shell: pwsh
-        run: |
-          $version = (Select-String -Path pyproject.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
-          echo "VERSION=$version" >> $env:GITHUB_OUTPUT
+          python-version: "3.12"
 
       - name: Create venv
-        run: python -m venv .venv-build
+        run: python -m venv .venv-build-windows
 
       - name: Install PyInstaller into venv
-        run: .venv-build\Scripts\pip.exe install pyinstaller
+        run: .venv-build-windows\Scripts\pip.exe install pyinstaller
 
       - name: Install project and dependencies
-        run: .venv-build\Scripts\pip.exe install -e .
+        run: .venv-build-windows\Scripts\pip.exe install -e .
 
       - name: Preload OCR models
-        run: .venv-build\Scripts\python.exe scripts\preload_models.py
+        run: .venv-build-windows\Scripts\python.exe scripts\preload_models.py
 
       - name: Build with PyInstaller
-        run: .venv-build\Scripts\pyinstaller.exe --noconfirm rapidocr_cli.spec
+        run: .venv-build-windows\Scripts\pyinstaller.exe --noconfirm --workpath build-windows --distpath dist-windows rapidocr_cli.spec
+
+      - name: Smoke test bundled CLI
+        shell: pwsh
+        run: |
+          .\dist-windows\veridis-ocr-cli\veridis-ocr-cli.exe --version
+          .\dist-windows\veridis-ocr-cli\veridis-ocr-cli.exe check --format json > $null
 
       - name: Zip release artifact
         shell: pwsh
-        run: Compress-Archive -Path dist\veridis-ocr-cli -DestinationPath veridis-ocr-cli-windows-x64-v${{ steps.version.outputs.VERSION }}.zip
+        run: Compress-Archive -Path dist-windows\veridis-ocr-cli -DestinationPath veridis-ocr-cli-windows-x64-v${{ needs.metadata.outputs.version }}.zip
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-release
+          path: veridis-ocr-cli-windows-x64-v${{ needs.metadata.outputs.version }}.zip
+
+  build-linux:
+    needs: metadata
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Create venv
+        run: python -m venv .venv-build-linux
+
+      - name: Install PyInstaller into venv
+        run: .venv-build-linux/bin/pip install pyinstaller
+
+      - name: Install project and dependencies
+        run: .venv-build-linux/bin/pip install -e .
+
+      - name: Preload OCR models
+        run: .venv-build-linux/bin/python scripts/preload_models.py
+
+      - name: Build with PyInstaller
+        run: .venv-build-linux/bin/pyinstaller --noconfirm --workpath build-linux --distpath dist-linux rapidocr_cli.spec
+
+      - name: Smoke test bundled CLI
+        run: |
+          ./dist-linux/veridis-ocr-cli/veridis-ocr-cli --version
+          ./dist-linux/veridis-ocr-cli/veridis-ocr-cli check --format json > /dev/null
+
+      - name: Archive Linux artifact
+        run: tar -C dist-linux -czf veridis-ocr-cli-linux-x64-v${{ needs.metadata.outputs.version }}.tar.gz veridis-ocr-cli
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-release
+          path: veridis-ocr-cli-linux-x64-v${{ needs.metadata.outputs.version }}.tar.gz
+
+  release:
+    needs:
+      - metadata
+      - build-windows
+      - build-linux
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.version.outputs.VERSION }}
-          name: v${{ steps.version.outputs.VERSION }}
-          files: veridis-ocr-cli-windows-x64-v${{ steps.version.outputs.VERSION }}.zip
+          tag_name: v${{ needs.metadata.outputs.version }}
+          name: v${{ needs.metadata.outputs.version }}
+          files: |
+            release-assets/windows-release/veridis-ocr-cli-windows-x64-v${{ needs.metadata.outputs.version }}.zip
+            release-assets/linux-release/veridis-ocr-cli-linux-x64-v${{ needs.metadata.outputs.version }}.tar.gz
           make_latest: true

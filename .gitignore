@@ -1,5 +1,7 @@
 # Python
 .venv/
+.venv-build-windows/
+.venv-build-linux/
 *.egg-info/
 *.venv*/
 *.pyc
@@ -9,6 +11,10 @@ __pycache__/
 # Build artifacts
 build/
 dist/
+build-linux/
+dist-linux/
+build-windows/
+dist-windows/
 
 # PyInstaller
 *.spec.bak
@@ -28,4 +34,3 @@ NOSProjectsothersocrrapidocr.venv-win/
 # OS
 .DS_Store
 Thumbs.db
-

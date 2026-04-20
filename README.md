@@ -1,6 +1,6 @@
 # veridis-ocr-cli
 
-A standalone CLI for OCR on images and PDFs, built on [RapidOCR](https://github.com/RapidAI/RapidOCR) with PP-OCRv5 models. Packaged as self-contained binaries for Windows, Linux, and macOS.
+A standalone CLI for OCR on images and PDFs, built on [RapidOCR](https://github.com/RapidAI/RapidOCR) with PP-OCRv5 models. Packaged as self-contained binaries for Windows and Linux.
 
 Supports English and Hindi (Devanagari) recognition. Outputs plain text, JSON with bounding boxes, or markdown.
 
@@ -12,9 +12,9 @@ Grab the latest release for your platform from the [Releases](../../releases) pa
 
 - **Windows x64**: `veridis-ocr-cli-windows-x64-v*.zip`
 - **Linux x64**: `veridis-ocr-cli-linux-x64-v*.tar.gz`
-- **macOS arm64**: `veridis-ocr-cli-macos-arm64-v*.tar.gz`
 
 Unzip/untar and run — no Python or installation required.
+For macOS, build locally on macOS with PyInstaller; PyInstaller does not cross-compile.
 
 ---
 
@@ -342,7 +342,25 @@ PP-OCRv5 detection is only packaged as `ch` in `rapidocr 3.8.1`. There is no sep
 
 ## Building from Source
 
-Requires Python 3.13+.
+Requires Python 3.12+.
+
+### Quick build scripts
+
+**Windows:**
+```powershell
+powershell -ExecutionPolicy Bypass -File .\build-exe.ps1
+```
+
+**Linux:**
+```bash
+chmod +x ./build-linux.sh
+./build-linux.sh
+```
+
+The Windows helper writes its bundle to `dist-windows/veridis-ocr-cli/`.
+The Linux helper writes its bundle to `dist-linux/veridis-ocr-cli/`.
+They create or reuse repo-local build environments at `.venv-build-windows/` and `.venv-build-linux/`.
+That keeps platform-specific artifacts separate when you build multiple targets from a shared checkout.
 
 ### 1. Create a virtual environment
 
@@ -372,13 +390,14 @@ python scripts/preload_models.py
 pyinstaller --noconfirm rapidocr_cli.spec
 ```
 
-The output will be in `dist/veridis-ocr-cli/`.
+The raw PyInstaller command writes to `dist/veridis-ocr-cli/`.
+The helper scripts above instead write to `dist-windows/` and `dist-linux/` to keep platform builds separate.
 
 ---
 
 ## Notes
 
-- **Cross-platform**: The CLI is built and tested for Windows, Linux, and macOS. However, PyInstaller does not cross-compile; you must build on the target OS.
+- **Cross-platform**: The CLI is built and tested for Windows and Linux. PyInstaller does not cross-compile; build on the target OS.
 - **Self-contained**: Models are preloaded at build time so the binary never downloads anything at runtime.
 - **Windows SmartScreen**: On first run, Windows may show an "unknown publisher" warning. Click "More info" then "Run anyway".
 - **Distribution**: The `veridis-ocr-cli/` folder (or `_internal/` directory next to the exe on Windows) contains the bundled DLLs and models. Keep them together.

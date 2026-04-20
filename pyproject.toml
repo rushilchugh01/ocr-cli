@@ -7,7 +7,7 @@ name = "veridis-ocr-cli"
 version = "0.1.2"
 description = "Standalone OCR CLI built on RapidOCR."
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.12"
 dependencies = [
   "rapidocr>=3.8.1",
   "onnxruntime>=1.24.4",
