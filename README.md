@@ -1,6 +1,6 @@
 # veridis-ocr-cli
 
-A standalone CLI for OCR on images and PDFs, built on [RapidOCR](https://github.com/RapidAI/RapidOCR) with PP-OCRv5 models. Packaged as self-contained binaries for Windows and Linux.
+A standalone CLI for OCR on images and PDFs, built on [RapidOCR](https://github.com/RapidAI/RapidOCR) with PP-OCRv5 models. Packaged as self-contained binaries for Windows, Linux, and Apple Silicon macOS, with best-effort automatic resume for interrupted runs when `--output` is used.
 
 Supports English and Hindi (Devanagari) recognition. Outputs plain text, JSON with bounding boxes, or markdown.
 
@@ -12,9 +12,16 @@ Grab the latest release for your platform from the [Releases](../../releases) pa
 
 - **Windows x64**: `veridis-ocr-cli-windows-x64-v*.zip`
 - **Linux x64**: `veridis-ocr-cli-linux-x64-v*.tar.gz`
+- **macOS arm64**: `veridis-ocr-cli-macos-arm64-v*.tar.gz`
 
 Unzip/untar and run — no Python or installation required.
-For macOS, build locally on macOS with PyInstaller; PyInstaller does not cross-compile.
+
+## Platform Support
+
+- **Windows x64**: published release artifact, built in GitHub Actions, smoke-tested with `--version` and `check`
+- **Linux x64**: published release artifact, built in GitHub Actions, smoke-tested with `--version` and `check`
+- **macOS arm64 (Apple Silicon)**: published release artifact, built on the `macos-15` GitHub-hosted arm64 runner, smoke-tested with `--version` and `check`
+- **macOS Intel**: not currently built or published
 
 ---
 
@@ -38,6 +45,14 @@ The `ocr` subcommand is the default. Passing an image path directly without `ocr
 ```bash
 ./veridis-ocr-cli ocr ./scans --recursive --format json --output ./results.json
 ```
+
+### Resume an interrupted PDF run automatically
+
+```bash
+./veridis-ocr-cli ocr ./bundle.pdf --format json --output ./bundle.json
+```
+
+If the process is killed or crashes, rerun the same command. When the prior checkpoint is still valid, the CLI resumes automatically instead of starting from page 1 again.
 
 ### OCR selected PDF pages only
 
@@ -104,7 +119,7 @@ The `ocr` subcommand is the default. Passing an image path directly without `ocr
 |------|---------|-------------|
 | `input` | required | Image file, directory, glob pattern, or HTTP(S) URL |
 | `--format` | `text` | Output format: `text`, `json`, `markdown` |
-| `--output` | stdout | Write output to a file instead of stdout |
+| `--output` | stdout | Write output to a file instead of stdout. Also enables automatic checkpointed resume for interrupted runs. |
 | `--recursive` | off | Recurse into subdirectories when input is a directory |
 | `--pattern` | image extensions | Glob pattern for directory input. Repeatable. |
 | `--rec-lang` | `devanagari` | Recognition language: `en`, `devanagari`, `ch` |
@@ -134,6 +149,24 @@ The `ocr` subcommand is the default. Passing an image path directly without `ocr
 | `--log-file` | off | Write CLI and RapidOCR logs to a UTF-8 log file |
 | `--rec-lang` | `devanagari` | Recognition language to verify |
 | `--verbose` | off | Show RapidOCR runtime logs |
+
+---
+
+## Resume And Checkpoints
+
+Automatic resume is best-effort and is designed mainly for long PDFs.
+
+- Resume activates only when `--output` is set, because the run then has a stable identity.
+- Checkpoints are stored under an app-owned deterministic directory in the OS temp area, not next to the output file.
+- If a recent matching checkpoint exists, rerunning the same command resumes automatically.
+- If the checkpoint is stale, incompatible with the new command, missing, or corrupt, the CLI logs a short note and starts fresh.
+- Successful runs remove the checkpoint. Failed or killed runs leave it behind for the next retry.
+
+Current policy:
+
+- Checkpoints older than 48 hours are treated as stale and ignored.
+- Partial PDF progress is restored from page-level checkpoint data.
+- Completed image inputs are skipped on retry when their checkpoint record is still valid.
 
 ---
 
@@ -357,9 +390,16 @@ chmod +x ./build-linux.sh
 ./build-linux.sh
 ```
 
+**macOS (Apple Silicon):**
+```bash
+chmod +x ./build-macos.sh
+./build-macos.sh
+```
+
 The Windows helper writes its bundle to `dist-windows/veridis-ocr-cli/`.
 The Linux helper writes its bundle to `dist-linux/veridis-ocr-cli/`.
-They create or reuse repo-local build environments at `.venv-build-windows/` and `.venv-build-linux/`.
+The macOS helper writes its bundle to `dist-macos/veridis-ocr-cli/`.
+They create or reuse repo-local build environments at `.venv-build-windows/`, `.venv-build-linux/`, and `.venv-build-macos/`.
 That keeps platform-specific artifacts separate when you build multiple targets from a shared checkout.
 
 ### 1. Create a virtual environment
@@ -391,13 +431,14 @@ pyinstaller --noconfirm rapidocr_cli.spec
 ```
 
 The raw PyInstaller command writes to `dist/veridis-ocr-cli/`.
-The helper scripts above instead write to `dist-windows/` and `dist-linux/` to keep platform builds separate.
+The helper scripts above instead write to `dist-windows/`, `dist-linux/`, and `dist-macos/` to keep platform builds separate.
 
 ---
 
 ## Notes
 
-- **Cross-platform**: The CLI is built and tested for Windows and Linux. PyInstaller does not cross-compile; build on the target OS.
+- **Cross-platform**: The CLI is built and tested for Windows, Linux, and Apple Silicon macOS in CI. PyInstaller does not cross-compile; build on the target OS.
+- **macOS scope**: Only Apple Silicon (`arm64`) is currently built and published. Intel macOS builds are not included.
 - **Self-contained**: Models are preloaded at build time so the binary never downloads anything at runtime.
 - **Windows SmartScreen**: On first run, Windows may show an "unknown publisher" warning. Click "More info" then "Run anyway".
-- **Distribution**: The `veridis-ocr-cli/` folder (or `_internal/` directory next to the exe on Windows) contains the bundled DLLs and models. Keep them together.
+- **Distribution**: The `veridis-ocr-cli/` folder (or `_internal/` directory next to the exe on Windows) contains the bundled libraries and models. Keep them together.

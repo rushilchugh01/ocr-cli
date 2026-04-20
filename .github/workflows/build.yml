@@ -116,11 +116,54 @@ jobs:
           name: linux-release
           path: veridis-ocr-cli-linux-x64-v${{ needs.metadata.outputs.version }}.tar.gz
 
+  build-macos:
+    needs: metadata
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Create venv
+        run: python -m venv .venv-build-macos
+
+      - name: Install PyInstaller into venv
+        run: .venv-build-macos/bin/python -m pip install pyinstaller
+
+      - name: Install project and dependencies
+        run: .venv-build-macos/bin/python -m pip install -e .
+
+      - name: Preload OCR models
+        run: .venv-build-macos/bin/python scripts/preload_models.py
+
+      - name: Build with PyInstaller
+        run: .venv-build-macos/bin/python -m PyInstaller --noconfirm --workpath build-macos --distpath dist-macos rapidocr_cli.spec
+
+      - name: Smoke test bundled CLI
+        run: |
+          ./dist-macos/veridis-ocr-cli/veridis-ocr-cli --version
+          ./dist-macos/veridis-ocr-cli/veridis-ocr-cli check --format json > /dev/null
+
+      - name: Archive macOS artifact
+        run: tar -C dist-macos -czf veridis-ocr-cli-macos-arm64-v${{ needs.metadata.outputs.version }}.tar.gz veridis-ocr-cli
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-release
+          path: veridis-ocr-cli-macos-arm64-v${{ needs.metadata.outputs.version }}.tar.gz
+
   release:
     needs:
       - metadata
       - build-windows
       - build-linux
+      - build-macos
     runs-on: ubuntu-latest
 
     steps:
@@ -137,4 +180,5 @@ jobs:
           files: |
             release-assets/windows-release/veridis-ocr-cli-windows-x64-v${{ needs.metadata.outputs.version }}.zip
             release-assets/linux-release/veridis-ocr-cli-linux-x64-v${{ needs.metadata.outputs.version }}.tar.gz
+            release-assets/macos-release/veridis-ocr-cli-macos-arm64-v${{ needs.metadata.outputs.version }}.tar.gz
           make_latest: true
