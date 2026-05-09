@@ -12,6 +12,7 @@ Grab the latest release for your platform from the [Releases](../../releases) pa
 
 - **Windows x64**: `veridis-ocr-cli-windows-x64-v*.zip`
 - **Linux x64**: `veridis-ocr-cli-linux-x64-v*.tar.gz`
+- **Linux aarch64**: `veridis-ocr-cli-linux-aarch64-v*.tar.gz`
 - **macOS arm64**: `veridis-ocr-cli-macos-arm64-v*.tar.gz`
 
 Unzip/untar and run — no Python or installation required.
@@ -20,6 +21,7 @@ Unzip/untar and run — no Python or installation required.
 
 - **Windows x64**: published release artifact, built in GitHub Actions, smoke-tested with `--version` and `check`
 - **Linux x64**: published release artifact, built in GitHub Actions, smoke-tested with `--version` and `check`
+- **Linux aarch64**: published release artifact, built on the `ubuntu-24.04-arm` GitHub-hosted runner, smoke-tested with `--version` and `check`
 - **macOS arm64 (Apple Silicon)**: published release artifact, built on the `macos-15` GitHub-hosted arm64 runner, smoke-tested with `--version` and `check`
 - **macOS Intel**: not currently built or published
 
@@ -397,7 +399,7 @@ chmod +x ./build-macos.sh
 ```
 
 The Windows helper writes its bundle to `dist-windows/veridis-ocr-cli/`.
-The Linux helper writes its bundle to `dist-linux/veridis-ocr-cli/`.
+The Linux helper writes its bundle to `dist-linux/veridis-ocr-cli/` and validates that `TARGET_ARCH`, when set, matches the native machine architecture (`x64` or `aarch64`).
 The macOS helper writes its bundle to `dist-macos/veridis-ocr-cli/`.
 They create or reuse repo-local build environments at `.venv-build-windows/`, `.venv-build-linux/`, and `.venv-build-macos/`.
 That keeps platform-specific artifacts separate when you build multiple targets from a shared checkout.
@@ -437,7 +439,7 @@ The helper scripts above instead write to `dist-windows/`, `dist-linux/`, and `d
 
 ## Notes
 
-- **Cross-platform**: The CLI is built and tested for Windows, Linux, and Apple Silicon macOS in CI. PyInstaller does not cross-compile; build on the target OS.
+- **Cross-platform**: The CLI is built and tested for Windows, Linux x64, Linux aarch64, and Apple Silicon macOS in CI. PyInstaller does not cross-compile; build on the target OS and CPU architecture.
 - **macOS scope**: Only Apple Silicon (`arm64`) is currently built and published. Intel macOS builds are not included.
 - **Self-contained**: Models are preloaded at build time so the binary never downloads anything at runtime.
 - **Windows SmartScreen**: On first run, Windows may show an "unknown publisher" warning. Click "More info" then "Run anyway".

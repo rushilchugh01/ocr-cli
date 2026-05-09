@@ -8,6 +8,9 @@ Usage: ./build-linux.sh [--clean|--no-clean]
 
 Builds a Linux one-folder PyInstaller bundle into dist-linux/veridis-ocr-cli/.
 The script creates or reuses .venv-build-linux/ under the repo root.
+
+Set TARGET_ARCH to validate the native Linux architecture. Supported values:
+x64 and aarch64.
 EOF
 }
 
@@ -34,6 +37,35 @@ DIST_DIR="${DIST_DIR:-$ROOT/dist-linux}"
 BUILD_DIR="${BUILD_DIR:-$ROOT/build-linux}"
 DIST_BIN="$DIST_DIR/veridis-ocr-cli/veridis-ocr-cli"
 BASE_PYTHON="${BASE_PYTHON:-python3}"
+
+native_arch="$("$BASE_PYTHON" - <<'PY'
+import platform
+
+machine = platform.machine().lower()
+if machine in {"x86_64", "amd64"}:
+    print("x64")
+elif machine in {"aarch64", "arm64"}:
+    print("aarch64")
+else:
+    raise SystemExit(f"unsupported Linux architecture: {machine}")
+PY
+)"
+TARGET_ARCH="${TARGET_ARCH:-$native_arch}"
+
+case "$TARGET_ARCH" in
+  x64|aarch64)
+    ;;
+  *)
+    echo "Unsupported TARGET_ARCH '$TARGET_ARCH' (expected x64 or aarch64)" >&2
+    exit 1
+    ;;
+esac
+
+if [[ "$TARGET_ARCH" != "$native_arch" ]]; then
+  echo "TARGET_ARCH '$TARGET_ARCH' does not match native architecture '$native_arch'" >&2
+  echo "PyInstaller does not cross-compile; run this on the target architecture." >&2
+  exit 1
+fi
 
 if [[ ! -x "$VENV_DIR/bin/python" ]]; then
   "$BASE_PYTHON" -m venv "$VENV_DIR"
@@ -77,4 +109,4 @@ if [[ ! -x "$DIST_BIN" ]]; then
   exit 1
 fi
 
-echo "Built Linux one-folder CLI at dist-linux/veridis-ocr-cli/veridis-ocr-cli"
+echo "Built Linux $TARGET_ARCH one-folder CLI at $DIST_BIN"
