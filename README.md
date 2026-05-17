@@ -444,3 +444,7 @@ The helper scripts above instead write to `dist-windows/`, `dist-linux/`, and `d
 - **Self-contained**: Models are preloaded at build time so the binary never downloads anything at runtime.
 - **Windows SmartScreen**: On first run, Windows may show an "unknown publisher" warning. Click "More info" then "Run anyway".
 - **Distribution**: The `veridis-ocr-cli/` folder (or `_internal/` directory next to the exe on Windows) contains the bundled libraries and models. Keep them together.
+
+## License
+
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.

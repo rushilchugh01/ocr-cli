@@ -8,6 +8,7 @@ version = "0.1.5"
 description = "Standalone OCR CLI built on RapidOCR."
 readme = "README.md"
 requires-python = ">=3.12"
+license = "MIT"
 dependencies = [
   "rapidocr>=3.8.1",
   "onnxruntime>=1.24.4",
